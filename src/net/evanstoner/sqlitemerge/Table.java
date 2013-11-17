@@ -45,7 +45,19 @@ public class Table {
         }
 
         String header = headerAndContents[0];
-        name = header.trim();
+
+        // name
+        String[] headerSplit = headerAndContents[0].split("\\(");
+        name = headerSplit[0].trim();
+
+        // dependents
+        if (headerSplit.length > 1) {
+            headerSplit[1] = headerSplit[1].replace(")", "");
+            String[] dependentsArray = headerSplit[1].split(",");
+            for (int i = 0; i < dependentsArray.length; i++) {
+                dependents.add(new Reference(dependentsArray[i].trim()));
+            }
+        }
 
         String[] lines = headerAndContents[1].split(";");
 
@@ -53,12 +65,47 @@ public class Table {
             System.err.println("WARNING: Bad number of lines: " + lines.length);
             return;
         }
+
+        // pseudokey; ROW is assumed if none is specified
+        skey = lines[0].trim();
+        if (skey.length() == 0) {
+            skey = "ROW";
+        }
+
+        // global identifiers
+        if (lines[1].trim().length() > 0) {
+            String[] gidsArray = lines[1].split(",");
+            for (int i = 0; i < gidsArray.length; i++) {
+                gids.add(new Field(gidsArray[i].trim()));
+            }
+        }
+
+        // diffs 1
+        diffs1 = listOfFields(lines[2]);
+
+        // updates 1
+        updates1 = mapOfRefernces(lines[3]);
+
+        // diffs 2
+        diffs2 = listOfFields(lines[4]);
+
+        // updates 2
+        updates2 = mapOfRefernces(lines[5]);
     }
 
-    private ArrayList<Field> listOfAliases(String line) {
-        ArrayList<Field> aliases = new ArrayList<Field>();
+    private ArrayList<Field> listOfFields(String line) {
+        ArrayList<Field> fields = new ArrayList<Field>();
+        String[] split = line.split(",");
 
-        return aliases;
+        if (split[0].trim().length() == 0) {
+            return fields;
+        }
+
+        for (int i = 0; i < split.length; i++) {
+            fields.add(new Field(split[i].trim()));
+        }
+
+        return fields;
     }
 
     private ArrayList<Reference> listOfReferences(String line) {
@@ -69,6 +116,23 @@ public class Table {
 
     private HashMap<String, Reference> mapOfRefernces(String line) {
         HashMap<String, Reference> references = new HashMap<String, Reference>();
+
+        String[] split = line.split(",");
+
+        if (split[0].trim().length() == 0) {
+            return references;
+        }
+
+        for (int i = 0; i < split.length; i++) {
+            if (split[i].contains("(")) {
+                // there is a reference
+                split[i] = split[i].replace(")", "");
+                String[] fieldAndReference = split[i].split("\\(");
+                references.put(fieldAndReference[0].trim(), new Reference(fieldAndReference[1].trim()));
+            } else {
+                references.put(split[i].trim(), null);
+            }
+        }
 
         return references;
     }
@@ -98,7 +162,11 @@ public class Table {
         }
         s += "):\n";
         for (String k : updates1.keySet()) {
-            s += " - " + updates1.get(k) + "\n";
+            s += " - " + k;
+            if (updates1.get(k) != null) {
+                s += " (" + updates1.get(k) + ")";
+            }
+            s += "\n";
         }
 
         s += "Updates 2 (diff'd on";
@@ -107,7 +175,11 @@ public class Table {
         }
         s += "):\n";
         for (String k : updates2.keySet()) {
-            s += " - " + updates1.get(k) + "\n";
+            s += " - " + k;
+            if (updates2.get(k) != null) {
+                s += " (" + updates2.get(k) + ")";
+            }
+            s += "\n";
         }
 
         return s;
