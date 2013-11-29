@@ -17,7 +17,7 @@ import java.util.Set;
 public class SqliteMerge {
 
     static ArrayList<Table> tables = new ArrayList<Table>();
-    static HashMap<String, HashMap<Integer, Integer>> keyMap = new HashMap<String, HashMap<Integer, Integer>>();
+    static HashMap<String, HashMap<String, String>> keyMap = new HashMap<String, HashMap<String, String>>();
     static File targetFile;
     static File secondaryFile;
     static Connection targetConnection = null;
@@ -49,7 +49,7 @@ public class SqliteMerge {
 
         for (Table t : tables) {
             //System.out.println(t);
-            keyMap.put(t.name, new HashMap<Integer, Integer>());
+            keyMap.put(t.name, new HashMap<String, String>());
         }
 
         try {
@@ -136,7 +136,7 @@ public class SqliteMerge {
                 }
             }
 
-            System.out.println(sqSecondaryRecords.toString());
+            //System.out.println(sqSecondaryRecords.toString());
             ResultSet rsSecondaryRecords = secondaryStatement.executeQuery(sqSecondaryRecords.toString());
 
             /*
@@ -180,7 +180,7 @@ public class SqliteMerge {
                     }
                     sqTargetMatch.where += " " + gid.getActualField() + "=?";
                     gidValues[i] = rsSecondaryRecords.getString(gid.getActualField());
-                    System.out.println(gid.getActualField() + " = " + gidValues[i]);
+                    //System.out.println(gid.getActualField() + " = " + gidValues[i]);
                 }
 
                 // prepare the statement and bind the parameters
@@ -188,7 +188,7 @@ public class SqliteMerge {
                 for (int i = 0; i < gidValues.length; i++) {
                     stmtTargetMatch.setString(i + 1, gidValues[i]);
                 }
-                System.out.println(sqTargetMatch);
+                //System.out.println(sqTargetMatch);
                 ResultSet rsTargetMatch = stmtTargetMatch.executeQuery();
 
                 /*
@@ -198,7 +198,7 @@ public class SqliteMerge {
 
                 if (rsTargetMatch.next()) {
                     System.out.println("Found match: " + rsSecondaryRecords.getInt(t.skey) + " -> " + rsTargetMatch.getInt(t.skey));
-                    keyMap.get(t.name).put(rsSecondaryRecords.getInt(t.skey), rsTargetMatch.getInt(t.skey));
+                    keyMap.get(t.name).put(rsSecondaryRecords.getString(t.skey), rsTargetMatch.getString(t.skey));
 
                     if (diffField == null || rsSecondaryRecords.getDate(diffField).after(rsTargetMatch.getDate(diffField))) {
                         for (Reference dependent : t.dependents) {
@@ -225,7 +225,7 @@ public class SqliteMerge {
                         }
                     }
 
-                    // add the foreign keys
+                    // add the foreign keys, but map them using the new values if they're available
                     ArrayList<String> fields = new ArrayList<String>();
                     fields.addAll(t.gidUpdates.keySet());
                     fields.addAll(t.localUpdates.keySet());
@@ -234,12 +234,14 @@ public class SqliteMerge {
                         if (r != null) {
                             siInsertRecord.fields += ", " + field;
                             siInsertRecord.values += ", ?";
-                            values.add(rsSecondaryRecords.getString(field));
+                            //
+                            String originalKey = rsSecondaryRecords.getString(field);
+                            String mappedKey = null;
+                            if (keyMap.get(r.table) != null) {
+                                mappedKey = keyMap.get(r.table).get(originalKey);
+                            }
+                            values.add(mappedKey == null ? originalKey : mappedKey);
                         }
-                    }
-
-                    for (String s : values) {
-                        System.out.println("V: " + s);
                     }
 
                     siInsertRecord.fields += ")";
@@ -253,11 +255,11 @@ public class SqliteMerge {
                         stmtInsertRecord.setString(i+2, values.get(i));
                     }
 
-                    System.out.println(siInsertRecord);
+                    //System.out.println(siInsertRecord);
                     stmtInsertRecord.executeUpdate();
                     ResultSet rsInsertRecordKey = stmtInsertRecord.getGeneratedKeys();
                     rsInsertRecordKey.next();
-                    keyMap.get(t.name).put(rsSecondaryRecords.getInt(t.skey), rsInsertRecordKey.getInt(1));
+                    keyMap.get(t.name).put(rsSecondaryRecords.getString(t.skey), rsInsertRecordKey.getString(1));
                     System.out.println(".. Created record " + rsInsertRecordKey.getInt(1));
                 }
             }
