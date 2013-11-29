@@ -36,11 +36,11 @@ public class Table {
     // instance fields
     public ArrayList<String> instanceFields = new ArrayList<String>();
 
-    public Table(String configEntry) {
+    public Table(String configEntry)  {
         String[] headerAndContents = configEntry.split("\\:");
 
         if (headerAndContents.length != 2) {
-            System.err.println("WARNING: Bad table: " + configEntry);
+            System.err.println("FATAL: Bad table entry (check punctuation): " + configEntry);
             return;
         }
 

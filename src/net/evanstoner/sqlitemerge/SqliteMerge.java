@@ -43,6 +43,10 @@ public class SqliteMerge {
         config = config.replaceAll("\\#[\\S ]*", "");
         String[] configEntries = config.split("\\.\\s");
         for (String entry : configEntries) {
+            Table t = new Table(entry);
+            if (t.name == null) {
+                return;
+            }
             tables.add(new Table(entry));
         }
 
@@ -212,13 +216,25 @@ public class SqliteMerge {
                     ResultSet rsMatchDetails = stmtMatchDetails.executeQuery();
                     rsMatchDetails.next();
 
-                    String gidDiff0 = null;
+                    String gidDiffDate = null;
                     if (t.gidDiffs.size() > 0) {
-                        gidDiff0 = t.gidDiffs.get(0).getActualField();
+                        gidDiffDate = t.gidDiffs.get(0).getActualField();
                     }
-                    if (gidDiff0 == null
-                            || rsMatchDetails.getDate(gidDiff0) == null
-                            || rsSecondaryRecords.getDate(gidDiff0).after(rsMatchDetails.getDate(gidDiff0))) {
+                    Date secondaryGidDate = null;
+                    Date matchGidDate = null;
+                    if (gidDiffDate != null) {
+                        try {
+                            secondaryGidDate = rsSecondaryRecords.getDate(gidDiffDate);
+                            matchGidDate = rsMatchDetails.getDate(gidDiffDate);
+                        } catch (SQLException e) {
+                            // the table does not have this column
+                            secondaryGidDate = null;
+                            matchGidDate = null;
+                        }
+                    }
+                    if (gidDiffDate == null
+                            || matchGidDate == null
+                            || secondaryGidDate.after(matchGidDate)) {
                         // delete the dependents
                         for (Reference dependent : t.dependents) {
                             SimpleQuery sqDeleteDependent = new SimpleQuery("DELETE", "FROM " + dependent.table, "WHERE " + dependent.field + "=?");
@@ -228,12 +244,25 @@ public class SqliteMerge {
                             System.out.println(".. Deleted dependents in " + dependent.table + " on " + dependent.field);
                         }
 
-                        String gidDiff1 = null;
+                        String gidDiffSignature = null;
                         if (t.gidDiffs.size() > 1) {
-                            gidDiff1 = t.gidDiffs.get(1).getActualField();
+                            gidDiffSignature = t.gidDiffs.get(1).getActualField();
                         }
-
-                        if (gidDiff1 == null || rsSecondaryRecords.getString(gidDiff1).compareTo(rsMatchDetails.getString(gidDiff1)) > 0) {
+                        Date secondarySignature = null;
+                        Date matchSignature = null;
+                        if (gidDiffSignature != null) {
+                            try {
+                                secondarySignature = rsSecondaryRecords.getDate(gidDiffSignature);
+                                matchSignature = rsMatchDetails.getDate(gidDiffSignature);
+                            } catch (SQLException e) {
+                                // the table does not have this column
+                                secondarySignature = null;
+                                matchSignature = null;
+                            }
+                        }
+                        if (gidDiffSignature == null
+                                || secondarySignature == null
+                                || secondarySignature.compareTo(matchSignature) > 0) {
                             // update the GID update fields (if they're local)
                             SimpleUpdate suUpdateGidFields = new SimpleUpdate("UPDATE " + t.name, "SET", "WHERE " + t.skey + "=?");
                             ArrayList<String> values = new ArrayList<String>();
@@ -259,13 +288,25 @@ public class SqliteMerge {
                         }
                     }
 
-                    String localDiff0 = null;
+                    String localDiffDate = null;
                     if (t.gidDiffs.size() > 0) {
-                        localDiff0 = t.gidDiffs.get(0).getActualField();
+                        localDiffDate = t.gidDiffs.get(0).getActualField();
                     }
-                    if (localDiff0 == null
-                            || rsMatchDetails.getDate(localDiff0) == null
-                            || rsSecondaryRecords.getDate(localDiff0).after(rsMatchDetails.getDate(localDiff0))) {
+                    Date secondaryLocalDate = null;
+                    Date matchLocalDate = null;
+                    if (localDiffDate != null) {
+                        try {
+                            secondaryLocalDate = rsSecondaryRecords.getDate(localDiffDate);
+                            matchLocalDate = rsMatchDetails.getDate(localDiffDate);
+                        } catch (SQLException e) {
+                            // the table does not have this column
+                            secondaryLocalDate = null;
+                            matchLocalDate = null;
+                        }
+                    }
+                    if (localDiffDate == null
+                            || matchLocalDate == null
+                            || secondaryLocalDate.after(matchLocalDate)) {
                         // update local update fields
                         SimpleUpdate suUpdateLocalFields = new SimpleUpdate("UPDATE " + t.name, "SET", "WHERE " + t.skey + "=?");
                         ArrayList<String> values = new ArrayList<String>();
