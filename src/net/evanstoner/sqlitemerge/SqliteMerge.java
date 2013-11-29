@@ -7,7 +7,6 @@ import java.nio.file.Paths;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Set;
 
 /**
  * Author: Evan Stoner <evanstoner.net>
@@ -112,12 +111,6 @@ public class SqliteMerge {
                 continue;
             }
 
-            // the first field of the gid diffs for comparing age; null means "always update"
-            String diffField = null;
-            if (t.gidDiffs.size() > 0) {
-                t.gidDiffs.get(0).getActualField();
-            }
-
             /*
             Query for all fields
              */
@@ -126,17 +119,25 @@ public class SqliteMerge {
             String selectFields = t.skey == "rowid" ? t.name + "." + t.skey + ", *" : "*";
             selectFields = selectFields.replace("*", t.name + ".*"); // unambiguate
             SimpleQuery sqSecondaryRecords = new SimpleQuery("SELECT " + selectFields, "FROM " + t.name, "");
+
+            // add all of the foreign gid fields
             for (Field gid : t.gids) {
                 if (gid.foreignField != null) {
                     // we have to perform a join to look up the gid
                     Reference r = t.getReference(gid.localField);
                     sqSecondaryRecords.select += ", " + r.table + "." + gid.foreignField; // add the referenced field
-//                    sqSecondaryRecords.select += ", " + r.toString(); // add the join field (for constraints)
                     sqSecondaryRecords.join += " INNER JOIN " + r.table + " USING (" + r.field + ")";
                 }
             }
 
-            //System.out.println(sqSecondaryRecords.toString());
+            // add all of the gid diffs
+            for (Field gidDiff : t.gidDiffs) {
+                if (gidDiff.foreignField != null) {
+                    Reference r = t.getReference(gidDiff.localField);
+                    sqSecondaryRecords.select += ", " + r.table + "." + gidDiff.foreignField; // add the referenced field
+                }
+            }
+
             ResultSet rsSecondaryRecords = secondaryStatement.executeQuery(sqSecondaryRecords.toString());
 
             /*
@@ -163,9 +164,10 @@ public class SqliteMerge {
                         sqTargetMatch.select += ", " + t.name + "." + dependent.field;
                     }
                 }
-                // we need the first diff field (a date) for comparing age if a match is found
-                if (diffField != null) {
-                    sqTargetMatch.select += ", " + diffField;
+
+                // we need the first GID diff field (a date) for comparing age if a match is found
+                for (Field gidDiff : t.gidDiffs) {
+                    sqTargetMatch.select += ", " + gidDiff.getActualField();
                 }
 
                 // we'll have to join on the same tables to compare the gids
@@ -197,16 +199,94 @@ public class SqliteMerge {
                  */
 
                 if (rsTargetMatch.next()) {
-                    System.out.println("Found match: " + rsSecondaryRecords.getInt(t.skey) + " -> " + rsTargetMatch.getInt(t.skey));
-                    keyMap.get(t.name).put(rsSecondaryRecords.getString(t.skey), rsTargetMatch.getString(t.skey));
+                    String matchedKey = rsTargetMatch.getString(t.skey);
 
-                    if (diffField == null || rsSecondaryRecords.getDate(diffField).after(rsTargetMatch.getDate(diffField))) {
+                    System.out.println("Found match: " + rsSecondaryRecords.getInt(t.skey) + " -> " + matchedKey);
+                    keyMap.get(t.name).put(rsSecondaryRecords.getString(t.skey), matchedKey);
+
+                    // get all the fields for the match and joined tables, used for updating the record if it's old
+                    SimpleQuery sqMatchDetails = new SimpleQuery("SELECT *", "FROM " + t.name, "WHERE " + t.skey + "=?");
+                    sqMatchDetails.join = sqTargetMatch.join;
+                    PreparedStatement stmtMatchDetails = targetConnection.prepareStatement(sqMatchDetails.toString());
+                    stmtMatchDetails.setString(1, matchedKey);
+                    ResultSet rsMatchDetails = stmtMatchDetails.executeQuery();
+                    rsMatchDetails.next();
+
+                    String gidDiff0 = null;
+                    if (t.gidDiffs.size() > 0) {
+                        gidDiff0 = t.gidDiffs.get(0).getActualField();
+                    }
+                    if (gidDiff0 == null
+                            || rsMatchDetails.getDate(gidDiff0) == null
+                            || rsSecondaryRecords.getDate(gidDiff0).after(rsMatchDetails.getDate(gidDiff0))) {
+                        // delete the dependents
                         for (Reference dependent : t.dependents) {
                             SimpleQuery sqDeleteDependent = new SimpleQuery("DELETE", "FROM " + dependent.table, "WHERE " + dependent.field + "=?");
                             PreparedStatement stmtDeleteDependent = targetConnection.prepareStatement(sqDeleteDependent.toString());
                             stmtDeleteDependent.setString(1, rsTargetMatch.getString(dependent.field));
                             stmtDeleteDependent.executeUpdate();
                             System.out.println(".. Deleted dependents in " + dependent.table + " on " + dependent.field);
+                        }
+
+                        String gidDiff1 = null;
+                        if (t.gidDiffs.size() > 1) {
+                            gidDiff1 = t.gidDiffs.get(1).getActualField();
+                        }
+
+                        if (gidDiff1 == null || rsSecondaryRecords.getString(gidDiff1).compareTo(rsMatchDetails.getString(gidDiff1)) > 0) {
+                            // update the GID update fields (if they're local)
+                            SimpleUpdate suUpdateGidFields = new SimpleUpdate("UPDATE " + t.name, "SET", "WHERE " + t.skey + "=?");
+                            ArrayList<String> values = new ArrayList<String>();
+                            for (String field : t.gidUpdates.keySet()) {
+                                Reference r = t.getReference(field);
+                                if (r == null) {
+                                    if (suUpdateGidFields.set != "SET") {
+                                        suUpdateGidFields.set += ",";
+                                    }
+                                    suUpdateGidFields.set += " " + field + "=?";
+                                    values.add(rsMatchDetails.getString(field));
+                                }
+                            }
+                            if (suUpdateGidFields.set != "SET") {
+                                PreparedStatement stmtUpdateGidFields = targetConnection.prepareStatement(suUpdateGidFields.toString());
+                                for (int i = 0; i < values.size(); i++) {
+                                    stmtUpdateGidFields.setString(i+1, values.get(i));
+                                }
+                                stmtUpdateGidFields.setString(values.size(), matchedKey);
+                                System.out.println(".. Updated GID fields");
+                                stmtUpdateGidFields.executeUpdate();
+                            }
+                        }
+                    }
+
+                    String localDiff0 = null;
+                    if (t.gidDiffs.size() > 0) {
+                        localDiff0 = t.gidDiffs.get(0).getActualField();
+                    }
+                    if (localDiff0 == null
+                            || rsMatchDetails.getDate(localDiff0) == null
+                            || rsSecondaryRecords.getDate(localDiff0).after(rsMatchDetails.getDate(localDiff0))) {
+                        // update local update fields
+                        SimpleUpdate suUpdateLocalFields = new SimpleUpdate("UPDATE " + t.name, "SET", "WHERE " + t.skey + "=?");
+                        ArrayList<String> values = new ArrayList<String>();
+                        for (String field : t.localUpdates.keySet()) {
+                            Reference r = t.getReference(field);
+                            if (r == null) {
+                                if (suUpdateLocalFields.set != "SET") {
+                                    suUpdateLocalFields.set += ",";
+                                }
+                                suUpdateLocalFields.set += " " + field + "=?";
+                                values.add(rsMatchDetails.getString(field));
+                            }
+                        }
+                        if (suUpdateLocalFields.set != "SET") {
+                            PreparedStatement stmtUpdateLocalFields = targetConnection.prepareStatement(suUpdateLocalFields.toString());
+                            for (int i = 0; i < values.size(); i++) {
+                                stmtUpdateLocalFields.setString(i + 1, values.get(i));
+                            }
+                            stmtUpdateLocalFields.setString(values.size(), matchedKey);
+                            stmtUpdateLocalFields.executeUpdate();
+                            System.out.println(".. Updated local fields");
                         }
                     }
                 } else {
@@ -285,6 +365,22 @@ public class SqliteMerge {
 
         public String toString() {
             return select + " " + from + " " + join + " " + where + " " + having;
+        }
+    }
+
+    private static class SimpleUpdate {
+        public String update = "";
+        public String set = "";
+        public String values = "";
+
+        public SimpleUpdate(String update, String set, String values) {
+            this.update = update;
+            this.set = set;
+            this.values = values;
+        }
+
+        public String toString() {
+            return update + " " + set + " " + values;
         }
     }
 
