@@ -28,4 +28,16 @@ public class Field {
             return localField;
         }
     }
+
+    /**
+     * Gets the name of the actual field, e.g. for querying
+     * @return The local field if there is no foreign field; otherwise, the foreign field
+     */
+    public String getActualField() {
+        if (foreignField == null) {
+            return localField;
+        } else {
+            return foreignField;
+        }
+    }
 }

@@ -22,16 +22,16 @@ public class Table {
     public ArrayList<Field> gids = new ArrayList<Field>();
 
     // first list of differencing fields
-    public ArrayList<Field> diffs1 = new ArrayList<Field>();
+    public ArrayList<Field> gidDiffs = new ArrayList<Field>();
 
     // first list of update fields
-    public HashMap<String, Reference> updates1 = new HashMap<String, Reference>();
+    public HashMap<String, Reference> gidUpdates = new HashMap<String, Reference>();
 
     // second list of differencing fields
-    public ArrayList<Field> diffs2 = new ArrayList<Field>();
+    public ArrayList<Field> localDiffs = new ArrayList<Field>();
 
     // second list of update fields
-    public HashMap<String, Reference> updates2 = new HashMap<String, Reference>();
+    public HashMap<String, Reference> localUpdates = new HashMap<String, Reference>();
 
     // instance fields
     public ArrayList<String> instanceFields = new ArrayList<String>();
@@ -66,10 +66,10 @@ public class Table {
             return;
         }
 
-        // pseudokey; ROW is assumed if none is specified
+        // pseudokey; rowid is assumed if none is specified
         skey = lines[0].trim();
         if (skey.length() == 0) {
-            skey = "ROW";
+            skey = "rowid";
         }
 
         // global identifiers
@@ -81,16 +81,16 @@ public class Table {
         }
 
         // diffs 1
-        diffs1 = listOfFields(lines[2]);
+        gidDiffs = listOfFields(lines[2]);
 
         // updates 1
-        updates1 = mapOfRefernces(lines[3]);
+        gidUpdates = mapOfRefernces(lines[3]);
 
         // diffs 2
-        diffs2 = listOfFields(lines[4]);
+        localDiffs = listOfFields(lines[4]);
 
         // updates 2
-        updates2 = mapOfRefernces(lines[5]);
+        localUpdates = mapOfRefernces(lines[5]);
     }
 
     private ArrayList<Field> listOfFields(String line) {
@@ -157,31 +157,44 @@ public class Table {
         }
 
         s += "Updates 1 (diff'd on";
-        for (Field f : diffs1) {
+        for (Field f : gidDiffs) {
             s += " - " + f;
         }
         s += "):\n";
-        for (String k : updates1.keySet()) {
+        for (String k : gidUpdates.keySet()) {
             s += " - " + k;
-            if (updates1.get(k) != null) {
-                s += " (" + updates1.get(k) + ")";
+            if (gidUpdates.get(k) != null) {
+                s += " (" + gidUpdates.get(k) + ")";
             }
             s += "\n";
         }
 
         s += "Updates 2 (diff'd on";
-        for (Field f : diffs2) {
+        for (Field f : localDiffs) {
             s += " - " + f;
         }
         s += "):\n";
-        for (String k : updates2.keySet()) {
+        for (String k : localUpdates.keySet()) {
             s += " - " + k;
-            if (updates2.get(k) != null) {
-                s += " (" + updates2.get(k) + ")";
+            if (localUpdates.get(k) != null) {
+                s += " (" + localUpdates.get(k) + ")";
             }
             s += "\n";
         }
 
         return s;
+    }
+
+    /**
+     * Finds the foreign reference associated with a field
+     * @param field The field that defines the reference
+     * @return The reference if one is found, otherwise, null
+     */
+    public Reference getReference(String field) {
+        Reference r = gidUpdates.get(field);
+        if (r == null) {
+            r = localUpdates.get(field);
+        }
+        return r;
     }
 }
