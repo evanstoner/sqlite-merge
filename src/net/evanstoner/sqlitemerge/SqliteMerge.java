@@ -383,10 +383,11 @@ public class SqliteMerge {
         fields.addAll(t.localUpdates.keySet());
         for (String field : fields) {
             Reference r = t.getReference(field);
-            if (r != null) {
-                siInsertRecord.fields += ", " + field;
-                siInsertRecord.values += ", ?";
-                //
+            siInsertRecord.fields += ", " + field;
+            siInsertRecord.values += ", ?";
+            if (r == null) {
+                values.add(secondaryRecords.getString(field));
+            } else {
                 String originalKey = secondaryRecords.getString(field);
                 String mappedKey = null;
                 if (keyMap.get(r.table) != null) {
